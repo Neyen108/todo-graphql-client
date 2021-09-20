@@ -10,20 +10,21 @@ import {
   Switch,
   Button,
 } from "antd";
+import { useMutation, useQuery, useSubscription } from "@apollo/client";
 import { AddTodo } from "./AddTodo";
+import {
+  DELETE_TODO,
+  GET_ALL_TODOS,
+  UPDATE_TODO,
+  UPDATE_TODO_STATUS,
+} from "../graphql/queries";
+import {
+  ON_TODO_CREATED,
+  ON_TODO_DELETED,
+  ON_TODO_UPDATED,
+} from "../graphql/subscriptions";
 
 const { Text } = Typography;
-
-const originData = [];
-
-for (let i = 0; i < 10; i++) {
-  originData.push({
-    key: i.toString(),
-    title: `TEST TITLE`,
-    content: "TEST CONTENT",
-    completed: true,
-  });
-}
 
 const EditableCell = ({
   editing,
@@ -62,23 +63,95 @@ const EditableCell = ({
 
 export const TodoList = () => {
   const [form] = Form.useForm();
-  const [data, setData] = useState(originData);
+  const [data, setData] = useState([]);
   const [editingKey, setEditingKey] = useState("");
 
-  function onChange(record) {
-    console.log(`record : `, record);
-    const newData = [...data];
-    const index = newData.findIndex((item) => item.key === record.key);
-    newData[index].completed = !newData[index].completed;
-    setData(newData);
-    console.log(newData);
+  useSubscription(ON_TODO_DELETED, {
+    onSubscriptionData: ({ subscriptionData }) => {
+      const newData = [...data];
+      const result = newData.filter(
+        (todo) => todo.key !== subscriptionData.data.todoDeleted
+      );
+      setData(result);
+    },
+  });
+
+  useSubscription(ON_TODO_UPDATED, {
+    onSubscriptionData: ({ subscriptionData }) => {
+      const newData = [...data];
+
+      const key = subscriptionData.data.todoUpdated.id;
+
+      const index = newData.findIndex((todo) => todo.key === key);
+
+      newData[index] = subscriptionData.data.todoUpdated;
+      newData[index].key = key;
+
+      setData(newData);
+    },
+  });
+
+  useSubscription(ON_TODO_CREATED, {
+    onSubscriptionData: ({ subscriptionData }) => {
+      console.log("h1");
+      const newData = [...data];
+
+      const newTodo = {
+        key: subscriptionData.data.todoCreated.id,
+        title: subscriptionData.data.todoCreated.title,
+        content: subscriptionData.data.todoCreated.content,
+        completed: subscriptionData.data.todoCreated.completed,
+      };
+
+      newData.unshift(newTodo);
+
+      setData(newData);
+    },
+  });
+
+  useQuery(GET_ALL_TODOS, {
+    onCompleted: ({ getAllTodos }) => {
+      console.log(getAllTodos);
+      const todos = getAllTodos.map((todo) => {
+        return {
+          key: todo.id,
+          title: todo.title,
+          content: todo.content,
+          completed: todo.completed,
+        };
+      });
+
+      setData(todos);
+    },
+  });
+
+  const [updateTodoStatus] = useMutation(UPDATE_TODO_STATUS, {
+    onError: (error) => console.log(error),
+  });
+
+  const [deleteTodo] = useMutation(DELETE_TODO, {
+    onError: (error) => console.log(error),
+  });
+
+  const [updateTodo] = useMutation(UPDATE_TODO, {
+    onError: (error) => console.log(error),
+  });
+
+  function changeTodoStatus(record) {
+    updateTodoStatus({
+      variables: {
+        CompletedStatus: { completed: !record.completed },
+        Id: record.key,
+      },
+    });
   }
 
   function onDelete(record) {
-    console.log(`delete:`, record);
-    const newData = [...data];
-    const res = newData.filter((item) => item.key !== record.key);
-    setData(res);
+    deleteTodo({
+      variables: {
+        id: record.key,
+      },
+    });
   }
 
   const isEditing = (record) => record.key === editingKey;
@@ -100,20 +173,18 @@ export const TodoList = () => {
   const save = async (key) => {
     try {
       const row = await form.validateFields();
-      const newData = [...data];
-      const index = newData.findIndex((item) => key === item.key);
 
-      if (index > -1) {
-        const item = newData[index];
-        newData.splice(index, 1, { ...item, ...row });
-        console.log("new:", newData);
-        setData(newData);
-        setEditingKey("");
-      } else {
-        newData.push(row);
-        setData(newData);
-        setEditingKey("");
-      }
+      updateTodo({
+        variables: {
+          UpdatedTodo: {
+            title: row.title,
+            content: row.content,
+          },
+          id: key,
+        },
+      });
+
+      setEditingKey("");
     } catch (errInfo) {
       console.log("Validate Failed:", errInfo);
     }
@@ -176,7 +247,10 @@ export const TodoList = () => {
       title: "Operation",
       dataIndex: "completed",
       render: (_, record) => (
-        <Switch checked={record.completed} onChange={() => onChange(record)} />
+        <Switch
+          checked={record.completed}
+          onChange={() => changeTodoStatus(record)}
+        />
       ),
     },
     {

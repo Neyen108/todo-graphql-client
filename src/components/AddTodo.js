@@ -1,14 +1,29 @@
 import React from "react";
 import { Form, Row, Col, Button, Input, Card } from "antd";
 import { PlusCircleFilled } from "@ant-design/icons";
+import { useMutation } from "@apollo/client";
+
 import "./addTodo.css";
+import { CREATE_TODO } from "../graphql/queries";
 
 export const AddTodo = () => {
   const [form] = Form.useForm();
 
+  const [createTodo] = useMutation(CREATE_TODO, {
+    onError: (error) => console.log(error),
+  });
+
   const onFinish = (values) => {
     console.log(values);
     form.resetFields();
+    createTodo({
+      variables: {
+        NewTodo: {
+          title: values.title,
+          content: values.content,
+        },
+      },
+    });
   };
 
   return (
